@@ -6,12 +6,12 @@ const app = express();
 app.use(cors());
 app.use(express.json({ limit: "50mb" }));
 
-// Health check
+// Health check route
 app.get("/", (req, res) => {
   res.json({ status: "Generator is running" });
 });
 
-// Main generator route
+// Main generator endpoint
 app.post("/generate", async (req, res) => {
   try {
     const zip = new JSZip();
@@ -23,12 +23,18 @@ app.post("/generate", async (req, res) => {
       "Content-Type": "application/zip",
       "Content-Disposition": "attachment; filename=pwa-site.zip"
     });
+
     res.send(zipBuffer);
 
   } catch (e) {
-    console.log(e);
+    console.error("Generation error:", e);
     res.status(500).json({ error: "Generation failed" });
   }
 });
 
-app.listen(3000, () => console.log("PWA Generator running on port 3000"));
+// Render requires listening on process.env.PORT
+const PORT = process.env.PORT || 3000;
+
+app.listen(PORT, () => {
+  console.log(`PWA Generator running on port ${PORT}`);
+});
