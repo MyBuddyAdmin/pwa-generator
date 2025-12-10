@@ -1,7 +1,7 @@
 {
-  "name": "pwa-generator",
+  "name": "pwa-generator-backend",
   "version": "1.0.0",
-  "description": "Node backend for PWA generator MVP",
+  "description": "Backend for PWA website generator",
   "main": "server.js",
   "scripts": {
     "start": "node server.js"
