@@ -1,6 +1,4 @@
-// ----------------------
-// server.js (new)
-// ----------------------
+// server.js (FINAL — FTP Publishing Working)
 
 const express = require("express");
 const cors = require("cors");
@@ -13,14 +11,14 @@ app.use(cors());
 app.use(express.json({ limit: "10mb" }));
 
 // ----------------------
-// ROOT TEST ENDPOINT
+// Root test
 // ----------------------
 app.get("/", (req, res) => {
   res.json({ status: "Generator API Running" });
 });
 
 // ----------------------
-// /generate  → returns ZIP file
+// /generate → create ZIP
 // ----------------------
 app.post("/generate", async (req, res) => {
   try {
@@ -28,7 +26,7 @@ app.post("/generate", async (req, res) => {
 
     const zip = new JSZip();
 
-    // Write config.json inside ZIP
+    // Create config.json inside the ZIP
     zip.file(
       "config.json",
       JSON.stringify({ branding, firebase, products }, null, 2)
@@ -38,67 +36,79 @@ app.post("/generate", async (req, res) => {
 
     res.set({
       "Content-Type": "application/zip",
-      "Content-Disposition": "attachment; filename=pwa-site.zip"
+      "Content-Disposition": "attachment; filename=pwa-site.zip",
     });
 
     return res.send(content);
+
   } catch (err) {
-    console.error("ZIP error", err);
-    return res.status(500).json({ error: "ZIP generation failed" });
+    console.error("ZIP ERROR:", err);
+    res.status(500).json({ error: "ZIP generation failed" });
   }
 });
 
 // ----------------------
-// /publish  → FTP upload
+// /publish → FTP upload
 // ----------------------
-app.post("/publish", (req, res) => {
-  const { subdomain, files } = req.body;
+app.post("/publish", async (req, res) => {
+  try {
+    const { folderName, files } = req.body;
 
-  if (!subdomain || !files) {
-    return res.status(400).json({ error: "Missing subdomain or files" });
-  }
+    if (!folderName || !files) {
+      return res.status(400).json({ error: "Missing folderName or files" });
+    }
 
-  const ftp = new FTP();
+    const ftp = new FTP();
 
-  ftp.on("ready", () => {
-    const basePath = `${subdomain}.mybuddymobile.com`;
-
-    ftp.mkdir(basePath, true, (err) => {
-      if (err) console.log("Folder already exists.");
-
-      let uploadsRemaining = Object.keys(files).length;
-
-      for (const [filename, content] of Object.entries(files)) {
-        const buffer = Buffer.from(content, "base64");
-
-        ftp.put(buffer, `${basePath}/${filename}`, (err) => {
-          if (err) console.error("FTP error:", err);
-
-          uploadsRemaining--;
-          if (uploadsRemaining === 0) {
-            ftp.end();
-            return res.json({
-              success: true,
-              url: `https://${subdomain}.mybuddymobile.com`
-            });
-          }
-        });
-      }
+    // Connect to HostGator FTP
+    ftp.connect({
+      host: process.env.FTP_HOST,
+      user: process.env.FTP_USER,
+      password: process.env.FTP_PASS,
+      port: process.env.FTP_PORT || 21
     });
-  });
 
-  ftp.connect({
-    host: process.env.FTP_HOST,
-    port: process.env.FTP_PORT,
-    user: process.env.FTP_USER,
-    password: process.env.FTP_PASS
-  });
+    ftp.on("ready", () => {
+      const targetPath = `/public_html/${folderName}`;
+
+      ftp.mkdir(targetPath, true, (err) => {
+        if (err && !err.message.includes("File exists")) {
+          console.error("FTP mkdir error:", err);
+          return res.status(500).json({ error: "Could not create folder" });
+        }
+
+        let remaining = Object.keys(files).length;
+
+        for (const [filePath, base64] of Object.entries(files)) {
+          const buffer = Buffer.from(base64, "base64");
+
+          ftp.put(buffer, `${targetPath}/${filePath}`, (err) => {
+            if (err) console.error("FTP upload error:", err);
+
+            remaining--;
+
+            if (remaining === 0) {
+              ftp.end();
+              return res.json({
+                success: true,
+                url: `https://${folderName}.mybuddymobile.com`
+              });
+            }
+          });
+        }
+      });
+    });
+
+  } catch (err) {
+    console.error("PUBLISH ERROR:", err);
+    res.status(500).json({ error: err.message });
+  }
 });
 
 // ----------------------
-// START SERVER
+// Start Server
 // ----------------------
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
-  console.log("API Running on port", PORT);
+  console.log("Server running on port", PORT);
 });
