@@ -6,7 +6,7 @@ require("dotenv").config();
 
 const app = express();
 
-// Allow Studio to connect
+// Allow Studio frontend
 app.use(cors());
 app.use(express.json({ limit: "10mb" }));
 
@@ -16,6 +16,7 @@ app.use(express.json({ limit: "10mb" }));
 app.get("/", (req, res) => {
   res.json({ status: "Generator API Running" });
 });
+
 
 // **************************************************************
 // ----------------------  /generate (ZIP Builder)  --------------
@@ -33,7 +34,9 @@ app.post("/generate", async (req, res) => {
 
     const zip = new JSZip();
 
-    // --- Minimal PWA index.html output ---
+    // --------------------------
+    // index.html generation
+    // --------------------------
     const indexHtml = `
 <!DOCTYPE html>
 <html>
@@ -43,25 +46,31 @@ app.post("/generate", async (req, res) => {
   <title>${appName}</title>
   <link rel="stylesheet" href="app.css" />
 </head>
-
 <body>
   <header class="header">${appName}</header>
 
   <main>
-    ${products.map(p => `
+    ${products
+      .map(
+        (p) => `
       <div class="product">
         <div class="name">${p.name}</div>
         <div class="price">$${p.price}</div>
       </div>
-    `).join("")}
+    `
+      )
+      .join("")}
   </main>
 
   <script src="firebase-init.js"></script>
   <script src="app.js"></script>
 </body>
-</html>`;
+</html>
+`;
 
-    // --- Basic CSS ---
+    // --------------------------
+    // CSS
+    // --------------------------
     const css = `
 body { margin:0; font-family:Arial; background:#fafafa; padding:20px; }
 .header { font-size:24px; font-weight:bold; margin-bottom:20px; color:${primaryColor}; }
@@ -77,39 +86,38 @@ body { margin:0; font-family:Arial; background:#fafafa; padding:20px; }
 .price { color:${accentColor}; margin-top:4px; font-size:18px; }
 `;
 
-    const appJs = `
-console.log("PWA Loaded: ${appName}");
-`;
-
-    const firebaseInit = `
-const firebaseConfig = ${JSON.stringify(firebase, null, 2)};
-`;
+    // --------------------------
+    // JS FILES
+    // --------------------------
+    const appJs = `console.log("PWA Loaded: ${appName}");`;
+    const firebaseJs = `const firebaseConfig = ${JSON.stringify(firebase, null, 2)};`;
 
     // Add files to ZIP
     zip.file("index.html", indexHtml);
     zip.file("app.css", css);
     zip.file("app.js", appJs);
-    zip.file("firebase-init.js", firebaseInit);
+    zip.file("firebase-init.js", firebaseJs);
 
     const buffer = await zip.generateAsync({ type: "nodebuffer" });
 
     res.set({
       "Content-Type": "application/zip",
-      "Content-Disposition": "attachment; filename=pwa-site.zip"
+      "Content-Disposition": "attachment; filename=pwa-site.zip",
     });
     res.send(buffer);
-
   } catch (err) {
     console.error("ZIP Generate Error:", err);
     return res.status(500).json({ error: "Failed to generate PWA." });
   }
 });
 
+
 // **************************************************************
-// ----------------------  /publish (FTP Upload)  ----------------
+// ----------------------  /publish  -----------------------------
 // **************************************************************
 const publishRoute = require("./publish");
 app.use("/publish", publishRoute);
+
 
 // -----------------------------
 // START SERVER
