@@ -1,128 +1,104 @@
-// server.js
+// ----------------------
+// server.js (new)
+// ----------------------
+
 const express = require("express");
 const cors = require("cors");
 const JSZip = require("jszip");
+const FTP = require("ftp");
 require("dotenv").config();
 
 const app = express();
-
-// Allow Studio frontend
 app.use(cors());
 app.use(express.json({ limit: "10mb" }));
 
-// -----------------------------
-// HEALTH CHECK
-// -----------------------------
+// ----------------------
+// ROOT TEST ENDPOINT
+// ----------------------
 app.get("/", (req, res) => {
   res.json({ status: "Generator API Running" });
 });
 
-
-// **************************************************************
-// ----------------------  /generate (ZIP Builder)  --------------
-// **************************************************************
+// ----------------------
+// /generate  → returns ZIP file
+// ----------------------
 app.post("/generate", async (req, res) => {
   try {
-    const payload = req.body || {};
-    const branding = payload.branding || {};
-    const firebase = payload.firebase || {};
-    const products = Array.isArray(payload.products) ? payload.products : [];
-
-    const appName = branding.name || "My Store";
-    const primaryColor = branding.primaryColor || "#22c55e";
-    const accentColor = branding.accentColor || "#9333ea";
+    const { branding, firebase, products } = req.body;
 
     const zip = new JSZip();
 
-    // --------------------------
-    // index.html generation
-    // --------------------------
-    const indexHtml = `
-<!DOCTYPE html>
-<html>
-<head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>${appName}</title>
-  <link rel="stylesheet" href="app.css" />
-</head>
-<body>
-  <header class="header">${appName}</header>
+    // Write config.json inside ZIP
+    zip.file(
+      "config.json",
+      JSON.stringify({ branding, firebase, products }, null, 2)
+    );
 
-  <main>
-    ${products
-      .map(
-        (p) => `
-      <div class="product">
-        <div class="name">${p.name}</div>
-        <div class="price">$${p.price}</div>
-      </div>
-    `
-      )
-      .join("")}
-  </main>
-
-  <script src="firebase-init.js"></script>
-  <script src="app.js"></script>
-</body>
-</html>
-`;
-
-    // --------------------------
-    // CSS
-    // --------------------------
-    const css = `
-body { margin:0; font-family:Arial; background:#fafafa; padding:20px; }
-.header { font-size:24px; font-weight:bold; margin-bottom:20px; color:${primaryColor}; }
-.product {
-  background:#fff;
-  padding:14px;
-  margin-bottom:12px;
-  border-left:8px solid ${accentColor};
-  border-radius:6px;
-  box-shadow:0 1px 4px rgba(0,0,0,0.1);
-}
-.name { font-size:16px; font-weight:600; }
-.price { color:${accentColor}; margin-top:4px; font-size:18px; }
-`;
-
-    // --------------------------
-    // JS FILES
-    // --------------------------
-    const appJs = `console.log("PWA Loaded: ${appName}");`;
-    const firebaseJs = `const firebaseConfig = ${JSON.stringify(firebase, null, 2)};`;
-
-    // Add files to ZIP
-    zip.file("index.html", indexHtml);
-    zip.file("app.css", css);
-    zip.file("app.js", appJs);
-    zip.file("firebase-init.js", firebaseJs);
-
-    const buffer = await zip.generateAsync({ type: "nodebuffer" });
+    const content = await zip.generateAsync({ type: "nodebuffer" });
 
     res.set({
       "Content-Type": "application/zip",
-      "Content-Disposition": "attachment; filename=pwa-site.zip",
+      "Content-Disposition": "attachment; filename=pwa-site.zip"
     });
-    res.send(buffer);
+
+    return res.send(content);
   } catch (err) {
-    console.error("ZIP Generate Error:", err);
-    return res.status(500).json({ error: "Failed to generate PWA." });
+    console.error("ZIP error", err);
+    return res.status(500).json({ error: "ZIP generation failed" });
   }
 });
 
+// ----------------------
+// /publish  → FTP upload
+// ----------------------
+app.post("/publish", (req, res) => {
+  const { subdomain, files } = req.body;
 
-// **************************************************************
-// ----------------------  /publish  -----------------------------
-// **************************************************************
-const publishRoute = require("./publish");
-app.use("/publish", publishRoute);
+  if (!subdomain || !files) {
+    return res.status(400).json({ error: "Missing subdomain or files" });
+  }
 
+  const ftp = new FTP();
 
-// -----------------------------
+  ftp.on("ready", () => {
+    const basePath = `${subdomain}.mybuddymobile.com`;
+
+    ftp.mkdir(basePath, true, (err) => {
+      if (err) console.log("Folder already exists.");
+
+      let uploadsRemaining = Object.keys(files).length;
+
+      for (const [filename, content] of Object.entries(files)) {
+        const buffer = Buffer.from(content, "base64");
+
+        ftp.put(buffer, `${basePath}/${filename}`, (err) => {
+          if (err) console.error("FTP error:", err);
+
+          uploadsRemaining--;
+          if (uploadsRemaining === 0) {
+            ftp.end();
+            return res.json({
+              success: true,
+              url: `https://${subdomain}.mybuddymobile.com`
+            });
+          }
+        });
+      }
+    });
+  });
+
+  ftp.connect({
+    host: process.env.FTP_HOST,
+    port: process.env.FTP_PORT,
+    user: process.env.FTP_USER,
+    password: process.env.FTP_PASS
+  });
+});
+
+// ----------------------
 // START SERVER
-// -----------------------------
+// ----------------------
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
-  console.log("🚀 PWA Generator running on port " + PORT);
+  console.log("API Running on port", PORT);
 });
