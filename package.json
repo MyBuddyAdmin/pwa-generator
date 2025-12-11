@@ -1,0 +1,15 @@
+{
+  "name": "pwa-generator",
+  "version": "1.0.0",
+  "description": "Automatically generates and publishes PWA storefronts.",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "basic-ftp": "^5.0.5",
+    "jszip": "^3.10.1",
+    "express": "^4.18.2",
+    "cors": "^2.8.5"
+  }
+}
