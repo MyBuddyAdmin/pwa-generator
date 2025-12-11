@@ -1,57 +1,89 @@
-import JSZip from "jszip";
-import FTPClient from "basic-ftp";
-import fs from "fs/promises";
+// publish.js
+const express = require("express");
+const router = express.Router();
+const AdmZip = require("adm-zip");
+const ftp = require("basic-ftp");
 
-export async function publishToHost(zipBuffer, storeId) {
-  const zip = await JSZip.loadAsync(zipBuffer);
+// FTP Credentials (HostGator)
+const FTP_HOST = process.env.FTP_HOST;
+const FTP_USER = process.env.FTP_USER;
+const FTP_PASS = process.env.FTP_PASS;
 
-  // ----- 1. FTP Connection -----
-  const client = new FTPClient.Client();
-  client.ftp.verbose = false;
+// Handle /publish
+router.post("/", async (req, res) => {
+  try {
+    const { branding, firebase, products } = req.body;
 
-  await client.access({
-    host: process.env.FTP_HOST,        // ftp.mybuddymobile.com
-    user: process.env.FTP_USER,        // ftp1@mybuddymobile.com
-    password: process.env.FTP_PASS,    // your password
-    port: 21,
-    secure: false
-  });
-
-  console.log("FTP connected!");
-
-  // ----- 2. Create store folder -----
-  const storePath = `/public_html/stores/${storeId}`;
-  await client.ensureDir(storePath);
-  await client.clearWorkingDir(); // prevent leftovers
-
-  console.log("Created folder:", storePath);
-
-  // ----- 3. Upload ZIP contents -----
-  for (const filename of Object.keys(zip.files)) {
-    const file = zip.files[filename];
-    if (!file.dir) {
-      const content = await file.async("nodebuffer");
-
-      await client.uploadFrom(
-        Buffer.from(content),
-        `${storePath}/${filename}`
-      );
+    if (!branding || !branding.name) {
+      return res.status(400).send("Missing store name");
     }
+
+    const folderName = branding.name.toLowerCase().replace(/\s+/g, "-");
+    const zip = new AdmZip();
+
+    // Build a minimal index.html for the store
+    const html = `
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <title>${branding.name}</title>
+        <style>
+          body { font-family: Arial; padding: 20px; background: #f2f2f2; }
+          h1 { color: ${branding.primaryColor}; }
+          .product {
+            background: white;
+            padding: 12px;
+            margin-bottom: 12px;
+            border-left: 8px solid ${branding.accentColor};
+            border-radius: 6px;
+          }
+          .price {
+            color: ${branding.accentColor};
+            font-size: 18px;
+          }
+        </style>
+      </head>
+      <body>
+        <h1>${branding.name}</h1>
+
+        ${products.map(p => `
+          <div class="product">
+            <strong>${p.name}</strong>
+            <div class="price">$${p.price}</div>
+          </div>
+        `).join("")}
+      </body>
+      </html>
+    `;
+
+    zip.addFile("index.html", Buffer.from(html));
+
+    // Prepare FTP upload
+    const client = new ftp.Client();
+    client.ftp.verbose = true;
+
+    await client.access({
+      host: FTP_HOST,
+      user: FTP_USER,
+      password: FTP_PASS,
+      secure: false,
+    });
+
+    // Create folder: /public_html/{folderName}
+    await client.ensureDir(`/public_html/${folderName}`);
+    await client.clearWorkingDir();
+
+    // Upload index.html
+    await client.uploadFrom(Buffer.from(html), "index.html");
+
+    client.close();
+
+    return res.send(`Store published! Visit: https://${folderName}.mybuddymobile.com`);
+
+  } catch (err) {
+    console.error("Publish Error:", err);
+    return res.status(500).send("Failed to publish store");
   }
+});
 
-  console.log("Upload complete.");
-
-  await client.close();
-
-  // ----- 4. Determine URL -----
-
-  // If wildcard DNS is active (propagated)
-  const wildcardWorks = false; // (We will switch this later)
-
-  if (wildcardWorks) {
-    return `https://${storeId}.mybuddymobile.com/`;
-  }
-
-  // Temporary fallback URL
-  return `https://mybuddymobile.com/stores/${storeId}/`;
-}
+module.exports = router;
