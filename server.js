@@ -1,11 +1,13 @@
 /**
  * MyBuddy PWA Studio Backend
+ * - Serves Generator UI
  * - ZIP generation
  * - Wildcard subdomain publishing via FTP
  */
 
 const express = require("express");
 const cors = require("cors");
+const path = require("path");
 const JSZip = require("jszip");
 const FTPClient = require("ftp");
 const slugify = require("slugify");
@@ -17,9 +19,18 @@ app.use(cors());
 app.use(express.json({ limit: "20mb" }));
 
 // =====================
+// SERVE BUILDER UI
+// =====================
+app.use(express.static(path.join(__dirname, "public")));
+
+app.get("/", (req, res) => {
+  res.sendFile(path.join(__dirname, "public", "index.html"));
+});
+
+// =====================
 // HEALTH CHECK
 // =====================
-app.get("/", (req, res) => {
+app.get("/health", (req, res) => {
   res.json({ status: "MyBuddy PWA Studio running" });
 });
 
@@ -35,9 +46,13 @@ function buildHTML(storeName, primaryColor, accentColor, products) {
   <title>${storeName}</title>
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <style>
-    body { margin:0; font-family:sans-serif; background:#f4f4f4 }
+    body {
+      margin:0;
+      font-family:system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
+      background:#f4f4f4;
+    }
     header {
-      background:${primaryColor};
+      background:${primaryColor || "#111"};
       color:#fff;
       padding:16px;
       text-align:center;
@@ -50,22 +65,27 @@ function buildHTML(storeName, primaryColor, accentColor, products) {
       padding:16px;
     }
     .card {
-      border:2px solid ${accentColor};
+      border:2px solid ${accentColor || "#333"};
       border-radius:14px;
       padding:14px;
       margin-bottom:12px;
       background:#fff;
+      font-size:16px;
     }
   </style>
 </head>
 <body>
   <header>${storeName}</header>
   <div class="wrap">
-    ${products.map(p => `
-      <div class="card">
-        ${p.name} – $${p.price}
-      </div>
-    `).join("")}
+    ${
+      products && products.length
+        ? products.map(p => `
+            <div class="card">
+              ${p.name || "Item"}${p.price != null ? ` — $${p.price}` : ""}
+            </div>
+          `).join("")
+        : `<div class="card">No items yet</div>`
+    }
   </div>
 </body>
 </html>
@@ -77,10 +97,14 @@ function buildHTML(storeName, primaryColor, accentColor, products) {
 // =====================
 app.post("/generate", async (req, res) => {
   try {
-    const { storeName, primaryColor, accentColor, products } = req.body;
+    const { branding = {}, products = [] } = req.body;
+
+    const storeName = branding.name;
+    const primaryColor = branding.primaryColor;
+    const accentColor = branding.accentColor;
 
     if (!storeName) {
-      return res.status(400).json({ error: "Missing storeName" });
+      return res.status(400).json({ error: "Missing store name" });
     }
 
     const zip = new JSZip();
@@ -107,10 +131,14 @@ app.post("/generate", async (req, res) => {
 // =====================
 app.post("/publish", async (req, res) => {
   try {
-    const { storeName, primaryColor, accentColor, products } = req.body;
+    const { branding = {}, products = [] } = req.body;
+
+    const storeName = branding.name;
+    const primaryColor = branding.primaryColor;
+    const accentColor = branding.accentColor;
 
     if (!storeName) {
-      return res.status(400).json({ error: "Missing storeName" });
+      return res.status(400).json({ error: "Missing store name" });
     }
 
     const subdomain = slugify(storeName, { lower: true, strict: true });
